@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Spin Wheel App</title>
+
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298, #2e8b57);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            color: #fff;
+        }
+
+        #status {
+            margin-bottom: 20px;
+            font-size: 1.2em;
+        }
+
+        p {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            background-color: #2f80ed;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #1e5db1;
+        }
+
+        #wheel {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            border: 10px solid #2f80ed;
+            border-radius: 50%;
+            overflow: hidden;
+            transition: transform 4s ease-out;
+        }
+
+        .withdraw-section {
+            margin-top: 30px;
+        }
+
+        .withdraw-section input {
+            width: 150px;
+            margin-right: 10px;
+        }
+
+        .referral-section {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .referral-section input {
+            width: 250px;
+        }
+
+        .withdraw-history {
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Spin the Wheel to Win Balance</h1>
+    <p id="status">Loading...</p>
+
+    <p>Current Balance: <span id="balance">0</span></p>
+
+    <div id="wheel"></div>
+    <button id="spinBtn">Spin the Wheel</button>
+
+    <div id="result" style="margin-top: 20px; font-size: 1.5em; color: green; display: none;">You won!</div>
+
+    <div class="withdraw-section">
+        <h2>Request Withdrawal</h2>
+        <input type="number" id="withdrawAmount" placeholder="Amount to withdraw">
+        <button id="withdrawBtn">Withdraw</button>
+    </div>
+
+    <div class="referral-section">
+        <h2>Your Referral Link</h2>
+        <input type="text" id="referralLink" readonly>
+        <button id="shareReferral">Share Referral Link</button>
+    </div>
+
+    <div class="withdraw-history" id="withdrawHistory"></div>
+
+    <!-- SweetAlert2 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        let userChatId;
+        let isSpinning = false;
+        let spinCounter = 0;
+        const dailySpinLimit = 3;
+
+        Telegram.WebApp.ready();
+        const initData = Telegram.WebApp.initDataUnsafe;
+        userChatId = initData.user ? initData.user.id : null;
+
+        if (!userChatId) {
+            Swal.fire('Error', 'Unable to retrieve user information.', 'error');
+        } else {
+            document.getElementById("status").innerText = `Hello, user ${userChatId}!`;
+
+            const referralLink = `https://t.me/spinbot/spin?startapp=REF${userChatId}`;
+            document.getElementById('referralLink').value = referralLink;
+
+            let balance = loadBalance(userChatId);
+            updateBalanceDisplay(balance);
+
+            document.getElementById('spinBtn').addEventListener('click', spinWheel);
+            document.getElementById('shareReferral').addEventListener('click', shareReferral);
+            document.getElementById('withdrawBtn').addEventListener('click', withdrawBalance);
+
+            loadWithdrawalHistory();
+            drawWheel();
+        }
+
+        function updateBalanceDisplay(balance) {
+            document.getElementById('balance').innerText = balance;
+        }
+
+        function loadBalance(chatId) {
+            const balanceData = localStorage.getItem(`balance_${chatId}`);
+            return balanceData ? parseFloat(balanceData) : 0;
+        }
+
+        function updateBalance(chatId, amount) {
+            let currentBalance = loadBalance(chatId);
+            currentBalance += amount;
+            localStorage.setItem(`balance_${chatId}`, currentBalance);
+            return currentBalance;
+        }
+
+        function spinWheel() {
+            if (isSpinning) return;
+            if (spinCounter >= dailySpinLimit) {
+                Swal.fire('Limit Reached', 'You have reached the daily spin limit.', 'warning');
+                return;
+            }
+
+            isSpinning = true;
+            spinCounter++;
+
+            Swal.fire({
+                title: 'Spinning the wheel...',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            const prizeValues = [10, 20, 30, 50, 100, 200];
+            const randomIndex = Math.floor(Math.random() * prizeValues.length);
+            const prize = prizeValues[randomIndex];
+
+            const degrees = randomIndex * (360 / prizeValues.length) + 360 * 5;
+            const wheel = document.getElementById('wheel');
+            wheel.style.transform = `rotate(${degrees}deg)`;
+
+            setTimeout(() => {
+                balance = updateBalance(userChatId, prize);
+                updateBalanceDisplay(balance);
+
+                Swal.fire({
+                    title: `Congratulations!`,
+                    text: `You won ${prize} points!`,
+                    icon: 'success',
+                    showConfirmButton: true
+                });
+
+                isSpinning = false;
+            }, 4000);
+        }
+
+        function withdrawBalance() {
+            const withdrawAmount = parseFloat(document.getElementById('withdrawAmount').value);
+            let currentBalance = loadBalance(userChatId);
+
+            if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+                Swal.fire('Error', 'Please enter a valid amount.', 'error');
+                return;
+            }
+
+            if (withdrawAmount > currentBalance) {
+                Swal.fire('Error', 'Insufficient balance.', 'error');
+                return;
+            }
+
+            currentBalance -= withdrawAmount;
+            localStorage.setItem(`balance_${userChatId}`, currentBalance);
+            updateBalanceDisplay(currentBalance);
+            saveWithdrawal(withdrawAmount);
+
+            Swal.fire({
+                title: 'Withdrawal Successful',
+                text: `${withdrawAmount} points have been withdrawn.`,
+                icon: 'success',
+                timer: 2000
+            });
+
+            document.getElementById('withdrawAmount').value = '';
+            loadWithdrawalHistory();
+        }
+
+        function saveWithdrawal(amount) {
+            let withdrawals = localStorage.getItem(`withdrawals_${userChatId}`);
+            withdrawals = withdrawals ? JSON.parse(withdrawals) : [];
+            withdrawals.push({ amount, date: new Date().toLocaleString() });
+            localStorage.setItem(`withdrawals_${userChatId}`, JSON.stringify(withdrawals));
+        }
+
+        function loadWithdrawalHistory() {
+            const withdrawalHistory = document.getElementById('withdrawHistory');
+            let withdrawals = localStorage.getItem(`withdrawals_${userChatId}`);
+            withdrawals = withdrawals ? JSON.parse(withdrawals) : [];
+
+            withdrawalHistory.innerHTML = `<h3>Withdrawal History</h3>`;
+            if (withdrawals.length > 0) {
+                withdrawals.forEach(withdrawal => {
+                    withdrawalHistory.innerHTML += `<p>${withdrawal.date} - ${withdrawal.amount} points</p>`;
+                });
+            } else {
+                withdrawalHistory.innerHTML += `<p>No withdrawals yet.</p>`;
+            }
+        }
+
+        function shareReferral() {
+            const referralLink = document.getElementById('referralLink').value;
+            navigator.clipboard.writeText(referralLink).then(() => {
+                Swal.fire('Referral Link', 'Referral link copied to clipboard!', 'success');
+            });
+        }
+
+        function drawWheel() {
+            const wheel = document.getElementById('wheel');
+            const canvas = document.createElement('canvas');
+            canvas.width = 300;
+            canvas.height = 300;
+            wheel.appendChild(canvas);
+
+            const ctx = canvas.getContext('2d');
+            const sections = 6;
+            const colors = ['#f39c12', '#e74c3c', '#2ecc71', '#3498db', '#9b59b6', '#1abc9c'];
+            const prizeValues = [10, 20, 30, 50, 100, 200];
+
+            for (let i = 0; i < sections; i++) {
+                ctx.beginPath();
+                ctx.moveTo(150, 150);
+                ctx.arc(150, 150,150, (i * 2 * Math.PI) / sections, ((i + 1) * 2 * Math.PI) / sections);
+                ctx.lineTo(150, 150);
+                ctx.fillStyle = colors[i];
+                ctx.fill();
+                ctx.save();
+
+                ctx.translate(150, 150);
+                ctx.rotate(((i + 0.5) * 2 * Math.PI) / sections);
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 18px Arial';
+                ctx.fillText(`${prizeValues[i]} pts`, 100, 10);
+                ctx.restore();
+            }
+        }
+    </script>
+</body>
+</html>
